@@ -1,6 +1,19 @@
 # Tivoli-Monitoring-Tips-and-tools
 Here I plan to park some handy Tivoli tips and tools
 
+## Impact Server Quick Sort
+Quick sort is classically written using recursion. Unfortunately Impact Programing Language (IPL) does not do recursion. IBM ship an example sort but it is bogosort (bubble sort) one of the slowest possible sort routines other than just make random switches until it is sorted. To provide a decent way to sort larger amounts of data I have implemented quicksort using a stack rather than recursion.
+
+To use this function save the library ipl in your ipl folder. Then use the qualified name to address the function and give it your array. The array is sorted in place is sorted in place.
+
+``` 
+# library code saved as qsort_lib.ipl
+qsort_lib.ipl.qsort(Array);
+```
+You could also just append the functions to an existing libabrary and call it as
+
+```my_extant_lib.qsort(Array);```
+
 ## Cached lookup of server details from tacmd listSystems
 ``` PowerShell
 function cachedLookup {
