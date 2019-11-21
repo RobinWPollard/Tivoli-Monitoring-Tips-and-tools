@@ -1,0 +1,285 @@
+#!/bin/ksh
+#
+# Script Name   : itm_mq_agent.sh
+# Author        : Johan Raeymaeckers
+# Date          : 06/06/2018
+# Description   : Script to start/stop/restart/force-reload/monitor IBM Tivoli Monitoring MQ agent instances
+# Version       : 1.1.1
+#
+# History:
+# Date        Version       Description                           Who
+# 07/06/2018  1.0.0         Initial Version                       Johan Raeymaeckers
+# 21/08/2018  1.1.0         Added support for env file corruption Johan Raeymaeckers
+# 25/10/2018  1.1.1         Changed cp command to use full path   Johan Raeymaeckers
+# ==================================================================================================
+
+# Functions
+log_entry () {
+  timestamp=`date`
+  echo $*
+  echo $timestamp $* >> $logfile
+}
+
+check_envfile () {
+  if [ -f $envfile  ]
+  then
+    if [ -s $envfile ]
+    then
+      log_entry "INFO: $envfile exists and is larger than 0 bytes - assuming no corruption"
+      return 0
+    else
+      log_entry "WARNING: $envfile is 0 bytes, trying to restore backup copy"
+      if [ -s $backupenvfile ]
+      then
+        log_entry "INFO: Valid copy exists: $envfilebackup"
+        su - $username -c "/usr/bin/cp $envfilebackup $envfile"
+        copyRC=$?
+        if [ $copyRC == 0 ]
+        then
+          log_entry "INFO: Copied $envfilebackup to $envfile as user $username"
+        else
+          log_entry "WARNING: Failed to copy $envfilebackup to $envfile as user $username - RC is $copyRC"
+        fi
+      else
+        log_entry "WARNING: No valid backup file was found: $envfilebackup does not exist"
+      fi
+    fi
+  else
+    log_entry "ERROR: $envfile does not exist!?"
+  fi
+}
+
+copy_envfile () {
+  #Check the date of the last backup if it is older than 24 hours - do nothing
+  #If it is older than 24 create a new copy
+  #Make sure you preserver ownership and permissions
+  if [ -f $envfilebackup  ]
+  then
+    log_entry "DEBUG: $envfilebackup exists"
+    #Include check on age of the file and copy only if it is older than 24h
+    if [ $( find $envfilebackup -mtime +1) ]
+    then
+      log_entry "INFO: $envfilebackup is older than 1 day, need to create a new copy"
+    else
+      log_entry "INFO: $envfilebackup is newer than 1 day, no need to create a new copy"
+      return 0
+    fi
+  else
+    log_entry "INFO: $envfilebackup does not exist"
+    if [ -d $backupdir ]
+    then
+      log_entry "DEBUG: $backupdir exists"
+    else 
+      log_entry "INFO: $backupdir does NOT exist need to create it"
+      su - $username -c "mkdir -p $backupdir"
+      log_entry "INFO: $backupdir created as user $username"
+    fi
+  fi
+  if [ -f $envfile  ]
+    then
+      if [ -s $envfile ]
+      then
+        log_entry "INFO: $envfile exists and is larger than 0 bytes"
+        log_entry "INFO: Copying $envfile to $envfilebackup"
+        su - $username -c "/usr/bin/cp $envfile $envfilebackup"
+        copyRC=$?
+        if [ $copyRC == 0 ]
+        then
+          log_entry "INFO: Copied $envfile to $envfilebackup as user $username"
+        else
+          log_entry "WARNING: Failed to copy $envfile to $envfilebackup as user $username - RC is $copyRC"
+        fi
+      else
+        log_entry "WARNING: $envfile is 0 bytes"
+        log_entry "WARNING: Not copying $envfile"
+        return 0
+      fi
+    else
+      log_entry "WARNING: $envfile does NOT exist"
+      log_entry "WARNING: Not copying $envfile"
+      return 0
+  fi
+}
+
+start_agent () {
+   # Start ITM Agent for MQ for each QMgr instance
+   NumOfFailedInstances=0 
+   for QMgr in ${QMgrs[@]}
+     do
+       log_entry "Starting mqagent instance $QMgr"
+       su - mqm -c "/opt/IBM/ITMMQ/bin/itmcmd agent -o $QMgr start mq"
+       StartRC=$?
+       if [ $StartRC == 0 ] || [ $StartRC == 2 ]
+         then
+           log_entry "INFO: Successfully started MQ agent for instance $Qmgr"
+         else
+           log_entry "ERROR: Failed to start MQ agent for instance $Qmgr"
+           let NumOfFailedInstances="NumOfFailedInstances + 1"
+       fi
+     done 
+   if [ $NumOfFailedInstances != 0 ]
+     then
+       log_entry "ERROR: One or more mq agent instances could not be started"
+       return 1
+     else
+       log_entry "INFO: All mq agent instances were successfully started"
+       return 0
+   fi
+}
+
+stop_agent () {
+   # Stop ITM Agent for MQ for each QMgr instance
+   NumOfFailedInstances=0 
+   for QMgr in ${QMgrs[@]}
+     do
+       log_entry "Stopping mqagent instance $QMgr"
+       su - mqm -c "/opt/IBM/ITMMQ/bin/itmcmd agent -o $QMgr stop mq"
+       StopRC=$?
+       if [ $StopRC == 0 ] || [ $StopRC == 2 ]
+         then
+           log_entry "INFO: Successfully stopped MQ agent for instance $Qmgr"
+         else
+           log_entry "ERROR: Failed to stop MQ agent for instance $Qmgr"
+           let NumOfFailedInstances="NumOfFailedInstances + 1"
+       fi
+     done 
+   if [ $NumOfFailedInstances != 0 ]
+     then
+       log_entry "ERROR: One or more mq agent instances could not be stopped"
+       return 1
+     else
+       log_entry "INFO: All mq agent instances were successfully stopped"
+       return 0
+   fi
+   exit 0
+}
+# End of Functions
+logfile="/tmp/itm_mq_agent.log"
+candlehome="/opt/IBM/ITMMQ"
+envfile="/opt/IBM/ITMMQ/config/.ConfigData/kmqenv"
+backupdir="/opt/IBM/ITMMQ/tmp/ConfigDataBackup"
+envfilebackup="$backupdir/kmqenv"
+
+if [ $# -ne 1 ]; then
+ log_entry "Usage: $0 {start|stop|restart|force-reload|status}"
+ exit 1
+fi
+
+case "$1" in
+ start|stop|status|restart|force-reload)
+   log_entry "####: Starting new execution of $0"
+   log_entry "INFO: Valid option $1 was specified"
+ ;;
+
+ *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}"
+    exit 1
+ ;;
+esac
+
+#Check whether /opt/IBM/ITMMQ/bin/itmcmd exists
+if [ -f /opt/IBM/ITMMQ/bin/itmcmd ]
+then
+  log_entry "INFO: /opt/IBM/ITMMQ/bin/itmcmd exists OK to continue"
+else
+  log_entry "ERROR: /opt/IBM/ITMMQ/bin/itmcmd does NOT exist cannot continue"
+  case "$1" in
+    start)
+      exit 1
+    ;;
+    stop)
+      exit 0
+	;;
+    status)
+      exit 3
+	;;
+    *)
+      exit 1
+	;;
+  esac
+fi
+
+#Get the name of the user owning CandleHome
+username="$(stat -c '%U' $candlehome)"
+log_entry "INFO: user owning $candlehome is $username"
+
+#Get the names of all the queue managers using dspmq as mqm user
+log_entry "INFO: Retrieving queue managers using dspmq command executed as mqm user"
+QMgrs=$(su - mqm -c dspmq | grep QMNAME | grep -v 'Ended unexpectedly' | awk -F'[()]' '{print $2}')
+if [ -z $QMgrs ]
+then
+  log_entry "ERROR: Failed to get list of MQ QMgrs using command dspmq as mqm user"
+  exit 1
+else
+  log_entry "INFO: Successfully retrieved queue managers"
+fi
+
+for QMgr in $QMgrs;
+  do
+    log_entry "INFO: Found qmgr: $QMgr"
+  done
+
+case "$1" in
+ start)
+   log_entry "INFO: Starting MQ agent"
+   check_envfile
+   start_agent
+   StartRC=$?
+   log_entry "INFO: Done starting MQ agent, RC is $StartRC"
+   if [ $StartRC == 0 ]
+   then
+     copy_envfile
+   fi
+   exit $StartRC
+ ;;
+
+ stop)
+   log_entry "INFO: Stopping MQ agent"
+   stop_agent
+   StopRC=$?
+   log_entry "INFO: Done stopping MQ agent, RC is $StopRC"
+   exit $StopRC
+ ;;
+
+ restart|force-reload)
+   log_entry "INFO: Restarting MQ agent instances"
+   check_envfile
+   stop_agent
+   sleep 3
+   start_agent
+   StartRC=$?
+   log_entry "INFO: Done restarting MQ agent, RC is $StartRC"
+   exit $StartRC
+ ;;
+
+ status)
+   copy_envfile
+   NumOfDownInstances=0 
+   for QMgr in ${QMgrs[@]}
+     do
+       count=`su - mqm -c "/opt/IBM/ITMMQ/bin/cinfo -R | grep -w $QMgr | grep ' mq ' | grep -c running"`
+       if [ $count -gt 0 ]
+         then
+           log_entry "INFO: MQ Agent for instance $QMgr is running"
+         else
+           log_entry "WARNING: MQ Agent for instance $QMgr is NOT running"
+           let NumOfDownInstances="NumOfDownInstances + 1"
+       fi
+   done
+            
+   if [ $NumOfDownInstances != 0 ]
+     then
+       log_entry "ERROR: One or more mq agent instances are not running"
+       exit 3
+     else
+       log_entry "INFO: All mq agent instances are running"
+       exit 0
+   fi
+ ;;
+
+ *)
+    echo "Usage: $0 {start|stop|restart|force-reload|status}"
+    exit 3
+ ;;
+esac
+

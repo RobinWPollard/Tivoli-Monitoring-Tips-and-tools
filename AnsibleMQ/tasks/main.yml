@@ -1,0 +1,193 @@
+#  This version performs ONLY the installation of the ITCAM MQ agent.
+#  No configuration is done
+#  No AutoStartup
+#  The agent is NOT started by default, and is left in in "unconfigured" state
+#  The Playbook "main_port_config.yml" must be run after the Oracle Database server has been installed and configured
+---
+- block:
+  - name: 'Override become method'
+    set_fact:
+      become_method_old: '{{ ansible_become_method }}'
+
+  - name: 'Override become method'
+    set_fact:
+      ansible_become_method: su
+  when:
+    - ansible_user_uid | int == 0
+
+- name: 'Check if TMA group exists'
+  getent:
+    database: group
+    key: '{{ role_tma_group }}'
+    fail_key: yes
+
+- name: 'Check if TMA user exists'
+  getent:
+    database: passwd
+    key: '{{ role_tma_user }}'
+    fail_key: yes
+
+- name: 'Set Facts for /opt/IBM/ITMMQ'
+  set_fact:
+    mountpoint: /opt/IBM/ITMMQ
+    vg_type: app
+    storage_type: local
+    vg_number: "{{ tma_mq_appvg_number|default(0)}}"  
+
+- name: 'Set Storage to starsan if clustered'
+  set_fact:
+    storage_type: 'starsan'
+  when: ec_server_clustered == true
+
+- name: 'Check Storage'
+  import_role:
+    name: check_storage
+
+- name: 'Create Storage Virt for Local'
+  import_role:
+    name: create_storage_libvirt
+  vars:
+    create_storage: "{{ not vg_exists }}"
+    storage_size: 25G
+  when: ec_hw_manufacturer == 'Red Hat' and ec_hw_model == 'KVM Guest'
+
+- name: 'Create Storage VMWare for Local'
+  import_role:
+    name: deploy_storage_vmware
+  vars:
+    create_storage: "{{ not vg_exists }}"
+  when: ec_hw_manufacturer == 'VMware' and ec_hw_model == 'Virtual Server'
+
+- name: 'Create LV/FS {{ mountpoint }}'
+  import_role:
+    name: create_storage
+  vars:
+    fs_owner: "{{ role_tma_user }}" 
+    fs_group: "{{ role_tma_group }}"
+    fs_mode: 0775
+    lv_size: 1G
+
+- debug:
+    var: delegation_host 
+
+- name: 'Make sure /opt/IBM/ITMMQ/bin is included in the PATH for the tivoli user'
+  lineinfile:
+    path: '~{{ role_tma_user }}/.bashrc'
+    line: 'export PATH="${PATH}:/opt/IBM/ITMMQ/bin"'
+  become: yes
+
+- name: Set SElinux context
+  sefcontext:
+    target: '{{ item.target }}'
+    setype: '{{ item.setype }}'
+    state: present
+  with_items:
+    - target: '/opt/IBM/ITMMQ/JRE/lx8266/bin(/.*)?'
+      setype: textrel_shlib_t
+    - target: '/opt/IBM/ITMMQ/tmaitm6/lx8266/lib(/.*)?'
+      setype: textrel_shlib_t
+    - target: '/opt/IBM/ITMMQ/tmaitm6/lx8263/lib(/.*)?'
+      setype: textrel_shlib_t
+    - target: '/opt/IBM/ITMMQ/tmaitm6/lx8266/lib(/.*)?'
+      setype: textrel_shlib_t
+  become: yes      
+
+- name: 'Installing prerequisites 64bit'
+  yum:
+    name: compat-libstdc++-33,libstdc++,libgcc
+    state: present
+    enablerepo: rhel-7-server-optional-rpms  
+  become: yes
+      
+- name: 'Installing prerequisites 32bit'
+  yum:
+    name: compat-libstdc++-33.i686,libstdc++.i686,libgcc.i686
+    state: present
+    enablerepo: rhel-7-server-optional-rpms  
+  become: yes
+
+#- name: 'Create directory structure'
+#  file:
+#    path: '{{ role_tma_path }}'
+#    mode: 0755
+#    owner: '{{ role_tma_user }}'
+#    group: '{{ role_tma_group }}'
+#    state: directory
+#  become: yes    
+
+### Firewall
+#- name: 'Configure the local firewall'
+#  include: configure_firewall.yml
+#  static: yes
+
+- name: remount /tmp exec
+  command: "mount /tmp -o remount,exec"
+  become: yes
+
+### TMA (aka ITCAM) MQ
+- name: 'Install MQ Agent'
+  import_tasks: install_mq_agent.yml
+  become: yes  
+  when: ec_hostname  == delegation_host
+
+- name: Apply FP007  patches
+  import_tasks: install_FP7.yml
+  become: yes 
+  when: ec_hostname  == delegation_host  
+
+- name: Apply Agent patches
+  import_tasks: install_agent_patches.yml
+  become: yes  
+  when: ec_hostname  == delegation_host  
+
+### JRE PATCH
+- name: Apply JRE patches
+  import_tasks: install_jre_patches.yml
+  become: yes  
+  when: ec_hostname  == delegation_host  
+
+### restore SELinix contexts
+- name: 'Check files for wrong SELinux context'
+  command: restorecon -Rvn {{ role_tma_path }}
+  register: test_selinux_context
+  changed_when: test_selinux_context.stdout_lines|length > 0
+  failed_when: no
+  check_mode: no
+  become: yes  
+  when: ec_hostname  == delegation_host  
+
+- name: 'Restore SELinux context'
+  command: restorecon -R {{ role_tma_path }}
+  failed_when: no
+  when: 
+    - ec_hostname  == delegation_host 
+    - test_selinux_context.stdout_lines|default("")|length > 0
+  become: yes  
+
+### Secure installation
+- name: Secure installlation
+  import_tasks: secure.yml
+  become: yes  
+  when: ec_hostname  == delegation_host
+
+- name: remount /tmp noexec
+  command: "mount /tmp -o remount,noexec"
+  become: yes
+
+- block:
+  - name: 'Reset Override become method'
+    set_fact:
+      ansible_become_method: '{{ become_method_old }}'
+  when:
+    - ansible_user_uid | int == 0
+
+### copy startup files 
+- name: Copy itm_mq_agent
+  copy:
+    src: etc/init.d/itm_mq_agent
+    dest: /etc/init.d/itm_mq_agent
+    mode: '0755'  
+  become: yes
+  tags: startup_file  
+
+

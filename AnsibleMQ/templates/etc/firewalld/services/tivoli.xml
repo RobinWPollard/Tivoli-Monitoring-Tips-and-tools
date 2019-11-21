@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- {{ ansible_managed }} -->
+<service>
+  <short>tivoli</short>
+  <description>Allow traffic for tivoli agents</description>
+  <port protocol="tcp" port="6014"/>
+  <port protocol="tcp" port="10110"/>
+  <port protocol="tcp" port="14206"/>
+  <port protocol="tcp" port="18302"/>
+  <port protocol="tcp" port="22398"/>
+  <port protocol="tcp" port="26494"/>
+  <port protocol="tcp" port="30590"/>
+  <port protocol="tcp" port="34686"/>
+  <port protocol="tcp" port="38782"/>
+  <port protocol="tcp" port="42878"/>
+  <port protocol="tcp" port="46974"/>
+  <port protocol="tcp" port="51070"/>
+  <port protocol="tcp" port="55166"/>
+  <port protocol="tcp" port="59262"/>
+  <port protocol="tcp" port="63358"/>
+</service>

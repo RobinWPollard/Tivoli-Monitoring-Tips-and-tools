@@ -1,0 +1,48 @@
+---
+- name: 'Check for JRE version'
+  shell: >
+    "{{ role_tma_path }}"/bin/cinfo -b | awk -F, '/^"jr"/{print $4}' | sed 's/"//g'
+  failed_when: no
+  changed_when: no
+  check_mode: no
+  register: test_jre_version
+
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change owner of temporary directory'
+    file:
+      path: '{{ tmp_tma_dir.path }}'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Push installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/{{ item }}'
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}'
+      owner: '{{ role_tma_user }}'
+    with_items:
+      - 6.X.X-TIV-ITM_JRE_CANDLEHOME_7.10.15.00_LinuxV5_only.tar
+#     - 6.X.X-TIV-ITM_JRE_CANDLEHOME_7.10.01.00.tar
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Patch TMA JRE'
+    command: su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.X.X-TIV-ITM_JRE_CANDLEHOME_7.10.15.00/jreupdate.sh -h {{ role_tma_path }}'
+#   command: su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.X.X-TIV-ITM_JRE_CANDLEHOME_7.10.01.00/jreupdate.sh -h {{ role_tma_path }}'
+    become: yes
+    
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  - name: 'Clean up installation source'
+    file:
+      path: '{{ tmp_tma_dir.path|default("/tmp/1") }}'
+      state: absent
+
+  when: test_jre_version.stdout != '07101500' and not ansible_check_mode

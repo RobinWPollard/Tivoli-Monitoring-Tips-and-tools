@@ -1,0 +1,3 @@
+---
+role_packages: libstdc++,libgcc
+role_packages_rz_agent: compat-libstdc++-33.i686 compat-libstdc++-33 libstdc++.i686 libstdc++ libgcc.i686 libgcc

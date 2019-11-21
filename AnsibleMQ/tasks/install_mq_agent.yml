@@ -1,0 +1,136 @@
+---
+- name: 'Check if ITCAM MQ agent has been installed'
+  stat:
+    path: '{{ role_tma_path }}/lx8263/mq/bin/kmqagent'
+  register: test_mq_agent_installed
+
+- name: 'Check if TMA LZ agent has been installed'
+  command:
+     su - '{{ role_tma_user }}' -c "/opt/IBM/TMA/bin/cinfo -t lz | grep 'lz   Monitoring Agent for Linux OS                             lx8266  06.30.07'"
+  become: yes
+  register: test_lz_agent_installed
+
+- name: 'Check if ITCAM MQ agent has been configured'
+  stat:
+    path: '{{ role_tma_path }}/config/mq.config'
+  register: test_mq_agent_configured
+
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change owner of temporary directory'
+    file:
+      path: '{{ tmp_tma_dir.path }}'
+      owner: '{{ role_tma_user }}'
+    become: yes
+
+  - name: 'Push installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/{{ item }}'
+      dest: '{{ tmp_tma_dir.path }}'
+      owner: '{{ role_tma_user }}'
+    with_items:
+      - 7.3.0-TIV-XEforMsg-FP0002_base_LinuxV5_only.tar 
+      - lx8263_v7302_kmq_LA01.tar
+    become: yes    
+
+  - name: 'Copy ITCAM MQ silent installation and configuration files'
+    copy:
+      src: '{{ role_tma_response_path}}/{{ item }}'
+      dest: '{{ tmp_tma_dir.path }}/response_files/'
+      owner: '{{ role_tma_user }}'
+    with_items:
+      - silent_install_MQ.txt
+    become: yes    
+
+  when:
+    - not ansible_check_mode
+    - not ( test_mq_agent_installed.stat.exists )
+
+- block:
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+    become: yes  
+
+  - name: 'Install ITCAM MQ'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path }}/7.3.0-TIV-XEforMsg-FP0002_base_LinuxV5_only/install.sh -q -h {{ role_tma_path }} -p {{ tmp_tma_dir.path }}/response_files/silent_install_MQ.txt -s'
+    become: yes
+
+  - name: 'Apply Provisional Fix 01 for ITCAM MQ agent v7.3.0 Fix Pack 02'
+    command: >
+      su - '{{ role_tma_user }}' -c '/bin/cp -u {{ tmp_tma_dir.path }}/lx8263/mq/bin/kmq*  {{ role_tma_path }}/lx8263/mq/bin/'
+    become: yes
+
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+    become: yes   
+
+  when:
+    - not test_mq_agent_installed.stat.exists
+
+- name: 'Idempotence check: MQ agent base config file'
+  stat:
+    path: '{{ role_tma_path }}/config/mq.ini'
+  register: test_mq_base_config_file
+
+- name: 'Apply security fix to MQ agent base config'
+  lineinfile:
+    path: '{{ role_tma_path }}/config/mq.ini'
+    regexp: 'KDC_FAMILIES='
+    line: "KDC_FAMILIES='ip.pipe port:1918 ip.spipe use:n sna use:n ip use:n ip6.pipe use:n ip6.spipe use:n ip6 use:n HTTP_CONSOLE:N HTTP_SERVER:N HTTP:0 HTTPS:0'"
+    state: present
+  when: test_mq_base_config_file.stat.exists
+  become: yes  
+
+- name: 'Set some default values for the MQ agent'
+  lineinfile:
+    path: '{{ role_tma_path }}/config/mq.ini'
+    regexp: '{{ item.regexp }}'
+    line: '{{ item.line }}'
+    state: present
+  with_items:
+    - regexp: 'CTIRA_HOSTNAME='
+      line: 'CTIRA_HOSTNAME={{ ec_hostname }}'
+    - regexp: 'CTIRA_SYSTEM_NAME='
+      line: 'CTIRA_SYSTEM_NAME={{ ec_hostname }}'
+  when: test_mq_base_config_file.stat.exists
+  become: yes  
+
+
+- block:
+  - name: 'Create ITCAM MQ silent config file'
+    template:
+      src: silent_config_mq.txt.j2
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}/response_files/silent_config_mq.txt'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Configure ITCAM MQ'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ role_tma_path }}/bin/itmcmd config -A -p {{ tmp_tma_dir.path|default("/tmp") }}/response_files/silent_config_mq.txt mq'
+    become: yes
+
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  when:
+    - not test_mq_agent_configured.stat.exists
+
+
+- name: 'Clean up installation source'
+  file:
+    path: '{{ tmp_tma_dir.path }}|default("/tmp/1")'
+    state: absent
+  when:
+    - not ansible_check_mode
+    - not ( test_mq_agent_installed.stat.exists )
+  become: yes    
+

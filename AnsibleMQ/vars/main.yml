@@ -1,0 +1,10 @@
+---
+role_tma_lo_config:
+  - silent_config: silent_config_lo_mcelog.txt
+    creates: lo_mcelog.config
+    instance_name: mcelog
+  - silent_config: silent_config_lo_UnixLog.txt
+    creates: lo_UnixLog.config
+    instance_name: UnixLog
+
+

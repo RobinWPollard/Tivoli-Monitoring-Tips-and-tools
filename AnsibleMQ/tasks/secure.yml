@@ -1,0 +1,30 @@
+---
+- name: 'Secure the installation'
+  command: >
+    "{{ role_tma_path }}/bin/secureMain" -h "{{ role_tma_path }}/" -g "{{ role_tma_group }}" lock
+
+- name: 'Create list of files to secure'
+  command: find '{{ role_tma_path }}' -type f -perm -003
+  check_mode: no
+  failed_when: no
+  changed_when: secure_find_files.stdout_lines|length > 0
+  register: secure_find_files
+
+- name: 'Securing files'
+  file:
+    path: '{{ item }}'
+    mode: 'o-x,o-w'
+  with_items: '{{ secure_find_files.stdout_lines }}'
+
+- name: 'Create list of directories to secure'
+  command: find '{{ role_tma_path }}' -type d -perm -002
+  check_mode: no
+  failed_when: no
+  changed_when: secure_find_dirs.stdout_lines|length > 0
+  register: secure_find_dirs
+
+- name: 'Securing directories'
+  file:
+    path: '{{ item }}'
+    mode: 'o-w'
+  with_items: '{{ secure_find_dirs.stdout_lines }}'

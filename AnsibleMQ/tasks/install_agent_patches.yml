@@ -1,0 +1,159 @@
+---
+- name: 'Check for IV88888 patches'
+  shell: >
+    /opt/IBM/ITMMQ/bin/cinfo -i -z | grep 'IV88888' | wc -l
+  failed_when: no
+  changed_when: no
+  check_mode: no
+  register: test_tma_IV88888_patches
+
+### IV88888 patch
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change owner of temporary directory'    
+    file: 
+      path: '{{ tmp_tma_dir.path }}'  
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Push patch installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/6.3.0-TIV-ITM-FP0007-IV88888_LinuxV5_only.tar'
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Apply IV88888 patch'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV88888_LinuxV5_only/provpatch  -h {{ role_tma_path }}  -i {{ item }}'
+    with_items:
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV88888_LinuxV5_only/kax_lx8263_tema_iv88888.tar'
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV88888_LinuxV5_only/kax_lx8266_tema_iv88888.tar'
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV88888_LinuxV5_only/kue_lx8266_tema_iv88888.tar'
+#    become_user: '{{ role_tma_user }}'
+    become: yes
+    
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  - name: 'Clean up installation source'
+    file:
+      path: '{{ tmp_tma_dir.path|default("/tmp/1") }}'
+      state: absent
+
+  when: test_tma_IV88888_patches.stdout != "3" and not ansible_check_mode
+
+### IV94012 Patch ===========================
+### Check if IV94012 has already been applied
+### (please note that this patch IV94012 should only be applied on 2 sub-components: AX 32-bit and 64-bit, not on 3 sub-components like the other IV patches)
+- name: 'Check for IV94012 patches'
+  shell: >
+    /opt/IBM/ITMMQ/bin/cinfo -i -z | grep 'IV94012' | wc -l 
+  failed_when: no
+  changed_when: no
+  check_mode: no
+  register: test_tma_IV94012_patches
+
+### Apply IV94012 patch
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change owner of temporary directory'    
+    file: 
+      path: '{{ tmp_tma_dir.path }}'  
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Push patch installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/6.3.0-TIV-ITM-FP0007-IV94012_LinuxV5_only.tar'
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Apply IV94012 patch'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV94012_LinuxV5_only/provpatch -h {{ role_tma_path }} -i {{ item }}'
+    with_items:
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV94012_LinuxV5_only/kax_lx8263_tema_iv94012.tar'
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV94012_LinuxV5_only/kax_lx8266_tema_iv94012.tar'
+#    become_user: '{{ role_tma_user }}'
+    become: yes
+    
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  - name: 'Clean up installation source'
+    file:
+      path: '{{ tmp_tma_dir.path|default("/tmp/1") }}'
+      state: absent
+
+  when: test_tma_IV94012_patches.stdout != "2" and not ansible_check_mode
+
+### IV97602 Patch ===========================
+### Check if IV97602 has already been applied
+- name: 'Check for IV97602 patches'
+  shell: >
+    /opt/IBM/ITMMQ/bin/cinfo -i -z | grep 'IV97602' | wc -l
+  failed_when: no
+  changed_when: no
+  check_mode: no
+  register: test_tma_IV97602_patches
+
+### Apply IV97602 patch
+
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change owner of temporary directory'    
+    file: 
+      path: '{{ tmp_tma_dir.path }}'  
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Push patch installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/6.3.0-TIV-ITM-FP0007-IV97602_LinuxV5_only.tar'
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Apply IV97602 patch'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV97602_LinuxV5_only/provpatch -h {{ role_tma_path }} -i {{ item }}'
+    with_items:
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV97602_LinuxV5_only/kax_lx8263_tema_iv97602.tar'
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV97602_LinuxV5_only/kax_lx8266_tema_iv97602.tar'
+    - '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM-FP0007-IV97602_LinuxV5_only/kue_lx8266_tema_iv97602.tar'
+#    become_user: '{{ role_tma_user }}'
+    become: yes
+    
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  - name: 'Clean up installation source'
+    file:
+      path: '{{ tmp_tma_dir.path|default("/tmp/1") }}'
+      state: absent
+
+  when: test_tma_IV97602_patches.stdout != "3" and not ansible_check_mode
+  

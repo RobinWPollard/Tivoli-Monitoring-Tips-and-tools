@@ -1,0 +1,73 @@
+---
+- name: 'Check if Fix Pack 7 for v6.3.0 is already installed'
+  shell: >
+    '{{ role_tma_path }}'/bin/cinfo -t | grep  'IBM Tivoli Monitoring Shared Libraries' | grep lx8266 | grep '06.30.07'
+  failed_when: no
+  changed_when: no
+  check_mode: no
+  register: test_tma_FP7
+
+### Applying patch 'Fix Pack 7 for v6.3.0'
+- block:
+  - name: 'Create temporary directory'
+    tempfile:
+      state: directory
+      path: '/tmp'
+    register: tmp_tma_dir
+    become: yes
+
+  - name: 'Change ownership of temp directory'
+    file:
+      path: '{{ tmp_tma_dir.path }}'
+      owner: '{{ role_tma_user }}' 
+
+  - name: 'Push patch installation media to target'
+    unarchive:
+      src: '{{ role_tma_source_path }}/6.3.0-TIV-ITM_TMV-Agents-FP0007_LinuxV5_only.tar'
+      dest: '{{ tmp_tma_dir.path|default("/tmp") }}'
+      owner: '{{ role_tma_user }}'
+
+  - name: 'Copy ITCAM MQ silent installation and configuration files'
+    copy:
+      src: '{{ role_tma_response_path }}/{{ item }}'
+      dest: '{{ tmp_tma_dir.path }}/response_files/'
+      owner: '{{ role_tma_user }}'
+    with_items:
+      - silent_install_FP7_for_MQ.txt
+      - tflx8263_FP7_MQ.txt
+      - tfli6263_FP7_MQ.txt
+
+  - name: 'Set SELinux to permissive'
+    command: setenforce Permissive
+
+  - name: 'Apply Fix Pack 7'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM_TMV-Agents-FP0007_LinuxV5_only/install.sh  -q  -h {{ role_tma_path }}  -p {{ tmp_tma_dir.path|default("/tmp") }}/response_files/silent_install_FP7_for_MQ.txt  -s'
+    become: yes
+
+  - name: 'Install Fix Pack 7 for 32-bit GSKit and Tivoli Shared Libraries on the ITCAM MQ'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM_TMV-Agents-FP0007_LinuxV5_only/install.sh  -q  -h {{ role_tma_path }}  -p {{ tmp_tma_dir.path|default("/tmp") }}/response_files/tfli6263_FP7_MQ.txt  -s'
+    become: yes
+
+  - name: 'Install Fix Pack 7 for 32-bit GSKit and Tivoli Shared Libraries on the ITCAM MQ'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ tmp_tma_dir.path|default("/tmp") }}/6.3.0-TIV-ITM_TMV-Agents-FP0007_LinuxV5_only/install.sh  -q  -h {{ role_tma_path }}  -p {{ tmp_tma_dir.path|default("/tmp") }}/response_files/tflx8263_FP7_MQ.txt  -s'
+    become: yes
+
+  - name: 'Uninstall unnecessary 32-bit components AX li6263 but keep the GS li6243'
+    command: >
+      su - '{{ role_tma_user }}' -c '{{ role_tma_path }}/bin/uninstall.sh -h  {{ role_tma_path }} ax li6263'
+#     su - '{{ role_tma_user }}' -c '{{ role_tma_path }}/bin/uninstall.sh -h  {{ role_tma_path }} gs li6243'
+    become: yes
+
+  - name: 'Set SELinux to Enforcing'
+    command: setenforce Enforcing
+
+  - name: 'Clean up installation source'
+    file:
+      path: '{{ tmp_tma_dir.path|default("/tmp/1") }}'
+      state: absent
+
+  when: '"06.30.07" not in test_tma_FP7.stdout'
+

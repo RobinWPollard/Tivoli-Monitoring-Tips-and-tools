@@ -1,0 +1,32 @@
+---
+- name: 'Deploy the tivoli firewall service'
+  template:
+    src: etc/firewalld/services/tivoli.xml
+    dest: /etc/firewalld/services/tivoli.xml
+    mode: 0644
+    owner: root
+    group: root
+  register: test_deploy_tivoli
+
+- name: 'Idempotence check: tivoli firewalld service file'
+  stat:
+    path: /etc/firewalld/services/tivoli.xml
+  register: test_tivoli_service_file
+
+- name: 'Reload firewalld configurations'
+  shell: |
+    sleep 5
+    /usr/bin/firewall-cmd --reload
+    sleep 5
+  when:
+  - test_tivoli_service_file.stat.exists == true
+  - test_deploy_tivoli.changed|default(false) == true
+
+- name: 'Add tivoli service to the public node'
+  firewalld:
+    zone: public
+    service: tivoli
+    state: enabled
+    immediate: yes
+    permanent: yes
+
